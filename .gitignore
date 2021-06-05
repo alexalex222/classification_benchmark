@@ -132,7 +132,7 @@ dmypy.json
 .vscode/
 
 # path configuration
-path_config.json
+config.json
 
 # tensorboard log
 tb_log/*
