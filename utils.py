@@ -188,7 +188,7 @@ def parse_option_pretrain():
     parser.add_argument('--resume_file', type=str, default='', help='path to saved model to resume')
 
     # dataset
-    parser.add_argument('--model', type=str, default='resnet50', choices=['resnet50'])
+    parser.add_argument('--model', type=str, default='resnet50', choices=['resnet50', 'resnet12_db', 'lambda_resnet50'])
     parser.add_argument('--dataset', type=str, default='miniImageNet',
                         choices=['miniImageNet', 'CUB'])
     parser.add_argument('--mix_up', action='store_true', help='use mix up training samples')

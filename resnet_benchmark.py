@@ -8,6 +8,7 @@ from torch.utils.data.dataloader import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.models import resnet
 
+from models import resnet_db, lambda_net
 from image_transformation import aug_transform, standard_transform
 from image_folder_dataset import ImageFolderDataset
 from utils import parse_option_pretrain, train_mix_precision, validate, adjust_learning_rate
@@ -59,8 +60,12 @@ def main():
         test_dataset, batch_size=opt.batch_size, shuffle=False,
         num_workers=opt.num_workers, pin_memory=True)
 
-    model = resnet.__dict__[opt.model](num_classes=base_class_num)
-    # model = resnet12_db(avg_pool=True, drop_rate=0.1, dropblock_size=5, num_classes=100)
+    if opt.model.endswith('db'):
+        model = resnet_db.__dict__[opt.model](avg_pool=True, drop_rate=0.1, dropblock_size=7, num_classes=base_class_num)
+    elif opt.model.startswith('lambda'):
+        model = lambda_net.__dict__[opt.model](num_classes=base_class_num)
+    else:
+        model = resnet.__dict__[opt.model](num_classes=base_class_num)
 
     print('    Total params: %.2fM' % (sum(p.numel() for p in model.parameters()) / 1000000.0))
 
