@@ -136,7 +136,7 @@ def main():
 
     kwargs = {'num_workers': 4, 'pin_memory': True} if use_cuda else {}
     if os.name == 'nt':
-        data_root = 'C:\\Temp\\torch_dataset'
+        data_root = 'D:\\Temp\\torch_dataset'
     else:
         data_root = '/media/kuilin/research/temp/torch_dataset'
     transform = transforms.Compose(
