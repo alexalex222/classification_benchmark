@@ -130,6 +130,7 @@ dmypy.json
 
 .idea/
 .vscode/
+.vs/
 
 # path configuration
 config.json
