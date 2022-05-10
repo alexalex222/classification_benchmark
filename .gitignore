@@ -144,3 +144,4 @@ tb_log/*
 *.ps1
 
 saved_models/*
+examples/*
