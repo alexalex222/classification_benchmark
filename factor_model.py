@@ -13,12 +13,13 @@ import pyreadr
 from statsmodels.formula.api import ols
 from statsmodels.graphics.tsaplots import plot_pacf
 from statsmodels.distributions.empirical_distribution import ECDF
-from sklearn.linear_model import Lasso, Ridge, ElasticNet
+from sklearn.linear_model import Lasso, Ridge, ElasticNet, LogisticRegression
 from sklearn.metrics import r2_score, mean_squared_error, accuracy_score
 
 import torch
+from torch.utils.data import TensorDataset, DataLoader
 from torch import nn
-from torch.optim import SGD
+from torch.optim import SGD, Adam
 
 
 # %%
@@ -34,16 +35,10 @@ features_short = ["Div_Yld", "Eps", "Mkt_Cap_12M_Usd", "Mom_11M_Usd", "Ocf", "Pb
 # this creates dummy variables indicated whether the return of a given stock was higher
 # than the median cross-section return. this will be used as the Y variable in
 # categorical prediction problems afterwards. i.e. we'll try to predict which stocks will perform relatively better
+# data['R1M_Usd_C'] = data.groupby('date')['R1M_Usd'].apply(lambda x: (x > x.median()))
 data['R1M_Usd_C'] = data.groupby('date')['R1M_Usd'].apply(lambda x: (x > x.median()))
 data['R12M_Usd_C'] = data.groupby('date')['R12M_Usd'].apply(lambda x: (x > x.median()))
 
-
-# %%
-separation_date = '2014-1-15'
-separation_mask = (data['date'] < separation_date)
-
-training_sample = data.loc[separation_mask]
-testing_sample = data.loc[~separation_mask]
 
 # %%
 stock_ids = data['stock_id'].unique().tolist()
@@ -60,8 +55,8 @@ returns = returns.pivot(index='date', columns='stock_id')
 # we create a simple size factor where a stock is "large" if it's larger than the cross-section median stock
 # and small if not. one would expect based on the size factor framework that small stocks outperform large
 # stocks.
-
-data['size'] = data.groupby('date')['Mkt_Cap_12M_Usd'].apply(lambda x: (x > x.median())).replace(
+factor = features_short[0]
+data['size'] = data.groupby('date')[factor].apply(lambda x: (x > x.median())).replace(
     {True: 'Large', False: 'Small'})
 data['year'] = data['date'].dt.year
 
@@ -71,6 +66,14 @@ ax = sns.barplot(x='year', y='R1M_Usd', hue='size', data=return_by_size)
 ax.set(xlabel='', ylabel='Average return')
 ax.set_xticklabels(ax.get_xticklabels(), rotation=40, ha="right")
 plt.show()
+
+
+# %%
+separation_date = '2014-1-15'
+separation_mask = (data['date'] < separation_date)
+
+training_sample = data.loc[separation_mask]
+testing_sample = data.loc[~separation_mask]
 
 # %%
 
@@ -180,15 +183,34 @@ gammas = pd.DataFrame.from_dict(reg_output_2).T.reset_index().rename({'index': '
 
 
 # %%
-selected_features = features
-y_penalized_train = training_sample['R1M_Usd'].values
+selected_features = features_short
+y_penalized_train = training_sample['R1M_Usd_C'].values
 X_penalized_train = training_sample[selected_features].values
 
-linear_model = Lasso()
+# selected_idx = (y_penalized_train <= 1.0) & (y_penalized_train >= 0)
+# y_penalized_train = y_penalized_train[selected_idx]
+# X_penalized_train = X_penalized_train[selected_idx]
+# X_penalized_train = np.concatenate((X_penalized_train, 1 - X_penalized_train), axis=0)
+# y_penalized_train = np.concatenate((y_penalized_train, 1 - y_penalized_train), axis=0)
+
+y_penalized_test = testing_sample['R1M_Usd_C'].values
+X_penalized_test = testing_sample[selected_features].values
+
+y_penalized_train = y_penalized_train
+y_penalized_test = y_penalized_test
+
+
+# %%
+plt.hist(y_penalized_train)
+plt.show()
+
+# %%
+y_penalized_train = y_penalized_train.astype(int)
+y_penalized_test = y_penalized_test.astype(int)
+linear_model = LogisticRegression()
 linear_model.fit(X_penalized_train, y_penalized_train)
 
-y_penalized_test = testing_sample['R1M_Usd'].values
-X_penalized_test = testing_sample[selected_features].values
+
 
 y_pred_test = linear_model.predict(X_penalized_test)
 
@@ -197,17 +219,38 @@ r2 = r2_score(y_penalized_test, y_pred_test)
 hit_ratio = accuracy_score(np.sign(y_penalized_test), np.sign(y_pred_test))
 print(f'MSE: {mse} \nR2: {r2} \nHit Ratio: {hit_ratio}')
 
+# %%
+np.sum(np.sign(y_pred_test))/len(y_pred_test)
+
 
 # %%
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cpu")
 dtype = torch.float
 
 
 selected_features = features
-y_train = torch.tensor(training_sample['R1M_Usd'].values, device=device, dtype=dtype)
+y_train = torch.tensor(training_sample['R1M_Usd_C'].values, device=device, dtype=dtype).reshape(-1)
 x_train = torch.tensor(training_sample[selected_features].values, device=device, dtype=dtype)
-y_test = torch.tensor(testing_sample['R1M_Usd'].values, device=device, dtype=dtype)
+
+
+# selected_idx = (y_train <= 1.0) & (y_train >= 0.0)
+# selected_idx = selected_idx.reshape(-1)
+# y_train = y_train[selected_idx]
+# x_train = x_train[selected_idx]
+
+
+y_test = torch.tensor(testing_sample['R1M_Usd_C'].values, device=device, dtype=dtype).reshape(-1)
 x_test = torch.tensor(testing_sample[selected_features].values, device=device, dtype=dtype)
+
+
+y_train = y_train.long()
+y_test = y_test.long()
+y_train = torch.cat((y_train, 1-y_train), dim=0)
+x_train = torch.cat((x_train, 1-x_train), dim=0)
+
+train_dataset = TensorDataset(x_train, y_train)
+train_dataloader = DataLoader(train_dataset, batch_size=1024, shuffle=True)
 
 
 class MLP(nn.Module):
@@ -216,9 +259,7 @@ class MLP(nn.Module):
         self.feed_forward_layers = nn.Sequential(
             nn.Linear(in_dim, 32),
             nn.ReLU(),
-            nn.Linear(32, 16),
-            nn.ReLU(),
-            nn.Linear(16, out_dim),
+            nn.Linear(32, out_dim),
         )
 
     def forward(self, x):
@@ -226,9 +267,8 @@ class MLP(nn.Module):
         return y
 
 
-def train(args, model, device, train_loader, optimizer, criterion, epoch):
+def train(model, device, train_loader, optimizer, criterion, epoch):
     model.train()
-    start_timer()
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
         batch_size = data.shape[0]
@@ -238,8 +278,51 @@ def train(args, model, device, train_loader, optimizer, criterion, epoch):
         loss = criterion(output, target)
         loss.backward()
         optimizer.step()
-        if batch_idx % args.log_interval == 0:
+        if batch_idx % 100 == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
-    end_timer_and_print('Default precision:')
+
+
+# %%
+nn_model = MLP(in_dim=len(selected_features), out_dim=2).to(device)
+optimizer = Adam(nn_model.parameters(), lr=1e-3)
+loss_function = nn.CrossEntropyLoss()
+
+for i in range(20):
+    train(nn_model, device, train_dataloader, optimizer, loss_function, i)
+
+
+# %%
+nn_model.eval()
+y_test_pred = nn_model(x_test.to(device))
+y_test_pred = torch.argmax(y_test_pred, dim=-1)
+y_test_pred = y_test_pred.detach().cpu().numpy()
+
+mse = mean_squared_error(y_test.cpu().numpy(), y_test_pred)
+r2 = r2_score(y_test.cpu().numpy(), y_test_pred)
+hit_ratio = accuracy_score(y_test.cpu().numpy(), y_test_pred)
+print(f'MSE: {mse} \nR2: {r2} \nHit Ratio: {hit_ratio}')
+
+
+# %%
+# we create a simple size factor where a stock is "large" if it's larger than the cross-section median stock
+# and small if not. one would expect based on the size factor framework that small stocks outperform large
+# stocks.
+factor = features_short[7]
+data['size'] = data.groupby('date')[factor].apply(lambda x: (x > x.median())).replace(
+    {True: 'Large', False: 'Small'})
+data['year'] = data['date'].dt.year
+
+return_by_size = data.groupby(['year', 'size'])['R1M_Usd'].mean().reset_index()
+
+ax = sns.barplot(x='year', y='R1M_Usd', hue='size', data=return_by_size)
+ax.set(xlabel='', ylabel='Average return')
+ax.set_xticklabels(ax.get_xticklabels(), rotation=40, ha="right")
+plt.show()
+
+# %%
+x = data.groupby('date')[factor].apply(lambda x: (x < x.median())).values
+y = data['R1M_Usd_C'].values
+accuracy_score(x[~separation_mask], y[~separation_mask])
+
