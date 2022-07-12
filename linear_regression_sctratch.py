@@ -2,6 +2,7 @@
 import numpy as np
 import torch
 import math
+from matplotlib import pyplot as plt
 
 
 # %%
@@ -12,18 +13,37 @@ y = 0.4 * x[:, 0] - 0.7 * x[:, 1] + np.random.randn(200) * 0.1
 device = torch.device('cpu')
 dtype = torch.float
 
-theta_1 = torch.randn((), device=device, dtype=dtype, requires_grad=True)
-theta_2 = torch.randn((), device=device, dtype=dtype, requires_grad=True)
+theta_1 = torch.zeros((), device=device, dtype=dtype, requires_grad=True)
+theta_2 = torch.zeros((), device=device, dtype=dtype, requires_grad=True)
 
-x = torch.tensor(x, device=device, dtype=dtype)
-y = torch.tensor(y, device=device, dtype=dtype)
+x_train = torch.tensor(x, device=device, dtype=dtype)
+y_train = torch.tensor(y, device=device, dtype=dtype)
 
-learning_rate = 1e-3
+learning_rate = 1e-4
 
+# %%
+def linear_model(
+    x: torch.Tensor
+):
+    return theta_1 * x[:, 0] + theta_2 * x[:, 1]
+
+def mean_squared_error(
+    y_pred: torch.Tensor, 
+    y: torch.Tensor,
+    ):
+    return (y_pred - y).pow(2).sum()
+
+
+# %%
+loss_list = []
+theta_1_list = []
+theta_2_list = []
+theta_1_list.append(theta_1.item())
+theta_2_list.append(theta_2.item())
 for t in range(200):
-    y_pred = theta_1 * x[:, 0] + theta_2 * x[:, 1]
+    y_pred = linear_model(x_train)
 
-    loss = (y_pred - y).pow(2).sum()
+    loss = (y_pred - y_train).pow(2).sum()
 
     loss.backward()
 
@@ -35,5 +55,23 @@ for t in range(200):
         theta_1.grad = None
         theta_2.grad = None
 
+    loss_list.append(loss.item())
+    theta_1_list.append(theta_1.item())
+    theta_2_list.append(theta_2.item())
 
 
+# %%
+fig, axes = plt.subplots(3, 1, figsize=(15, 15))
+axes[0].plot(theta_1_list, label=r'$\theta_1$')
+axes[0].legend()
+axes[1].plot(theta_2_list, label=r'$\theta_1$')
+axes[1].legend()
+axes[2].plot(loss_list, label='loss')
+axes[2].legend()
+plt.show()
+
+# %%
+ax = plt.axes(projection='3d')
+ax.plot3D(theta_1_list, theta_2_list, loss_list, 'gray')
+plt.show()
+# %%
